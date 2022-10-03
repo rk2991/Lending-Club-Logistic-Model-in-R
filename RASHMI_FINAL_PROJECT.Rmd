@@ -1,0 +1,526 @@
+---
+title: "Final Project"
+author: "Rashmi Kalra"
+date: "6/29/2022"
+output: word_document
+---
+
+library(tidyverse)
+library(caret)
+
+```{r,warning = FALSE}
+#setwd("C:/Users/sagar/OneDrive/Desktop/Data Mining/Week1/Project/LOAN")
+#loan<-read.csv("accepted_2007_to_2018Q4.csv")
+#str(loan)
+#dim(loan)
+```
+
+# *********************************************Data Cleaning and Pre processing********************
+
+There are 2.6 MILLION observations with 151 variables. A lot of those 151 variables are irrelevant for our current objective of default prediction. A thorough understanding of the domain and all the variables is necessary to remove irrelevant variables, so I used the lending club’s data dictionary as well as the orchard platform’s explanations of the workings of the lending world to identify and remove these variables. Links:
+
+LC Dictionary - https://help.lendingclub.com/hc/en-us/articles/216127307-Data-Dictionaries
+
+Orchard Platform - https://www.orchardplatform.com/blog/credit-variables-explained-inquiries-in-the-last-6-months
+
+Also, I am considering the Year 2017 and term as 60 months for sub setting the data. After sub-setting the data I have 62821 records. Now Response variable is default which has the following values (Fully Paid, Charge off, Current, Default, In Grace Period and Late). We are keeping Fully Paid which will be Good i.e. Non-Default and Charge off  as our Bad.
+
+```{r}
+
+library(tidyverse)
+
+setwd("C:/Users/sagar/OneDrive/Desktop/Data Mining/Week1/Project")
+loandata<-read.csv("loan_2017_60term.csv")
+str(loandata)
+dim(loandata)
+
+head(loandata)
+```
+
+
+# Creating New Variable Default 
+
+Our response variable was loan_status ( Charged off, Fully Paid and others). We want to predict if a given person will default or not. so we are creating a new numerical variable "Default"
+
+The target variable ‘Default’ is re-coded into numeric terms.
+```{r}
+loandata1 <- loandata %>% filter(loan_status=="Fully Paid"|loan_status=="Charged Off")%>%
+              mutate(default = ifelse(loan_status=="Fully Paid",0,1))%>% filter(home_ownership=="MORTGAGE"|home_ownership=="OWN"|home_ownership=="RENT")%>%
+              mutate(home_own = ifelse(home_ownership=="OWN",1,0))
+
+
+#converting above created variables to Factor
+
+loandata1$default<-as.factor(loandata1$default)
+loandata1$home_own<-as.factor(loandata1$home_own)
+
+str(loandata1)
+
+```
+
+
+# ***************************************Data Exploration*************************************************
+
+
+Firstly, I want to check the distribution of the loan amount. It is one of the most important and primary feature in our dataset
+
+#Loan Amount Histogram
+```{r}
+ ggplot(data=loandata1, aes(x=loandata1$loan_amnt)) + 
+  geom_histogram(aes(y=..density..),
+                 col='black', 
+                 fill='dodgerblue1', 
+                 alpha=0.3,
+                 xlab="Loan Amount",
+                 ylab="Density") +
+  geom_density(adjust=3)
+
+```
+
+
+The distribution is right-skewed as we would normally expect for this kind of variable.The maximum loan amount is $40,000 and the minimum is $1,000. The distribution is not normal, has multiple peaks, and there are some outliers at the right tail.
+
+#Installment Histogram
+```{r}
+ ggplot(data=loandata1, aes(x=loandata1$installment)) + 
+  geom_histogram(aes(y=..density..),
+                 col='black', 
+                 fill='dodgerblue1', 
+                 alpha=0.3,
+                 xlab="installment",
+                 ylab="Density") +
+  geom_density(adjust=3)
+```
+
+The range of installments is wide, from $200 to $1,319 per month. Obviously, one would expect the installments to be highly correlated to the loan amount.
+
+# Segmented Bar Chart - Home Ownership
+Next the home ownership variable is another crucial predictor of the default. Intuition would say that home owners would be good borrowers and people on rent or mortgage would be bad investment. 
+
+```{r}
+loandata1$default<-as.factor(loandata1$default)
+# Here we see that there is no value in any so we can remove this from our dataset
+
+ggplot(loandata1, aes(x = home_ownership, fill = default)) + 
+geom_bar(aes(y = (..count..)/sum(..count..)), position='stack', alpha=0.5) 
+
+```
+
+Home Ownership: Majority of clients are lacking ownership of any property and are on rent or mortgage and have a higher chance of defaulting. Any has hardly any values present in the dataset so we deleted it from data.
+
+
+
+# Purpose
+```{r}
+table <- summarize(group_by(loandata1, default, purpose), Count = n( )) 
+table
+ggplot(loandata1, aes(x = purpose, fill = default)) + 
+geom_bar(aes(y = (..count..)/sum(..count..)), position='stack', alpha=0.5) + 
+  labs( 
+              x = "Purpose",
+              y = "% Loans")
+
+```
+
+Loans are taken mostly for debt consolidation and credit card payment. Whereas the debt consolidation has highest fully paid loan and we also see that the most defaulted loans are for credit cards and debt consolidation.
+
+
+#Scatterplot of loan status against Annual income
+```{r}
+ggplot(loandata1, aes(x = default, annual_inc)) + 
+  geom_point( )
+```
+
+The figure above shows association between loan status and the annual income, the higher the annual income the higher the likelihood of the loan being fully paid. However, if the annual income is low, there is chances of the loan to be Charged Off.
+
+#Annual Income and Loan Amount 
+
+```{r}
+ggplot(loandata1, aes(x = annual_inc,loan_amnt)) + 
+  geom_point( )
+```
+The scatterplot above suggests the presence of outliers.
+
+# Segmented Bar Chart - Employment length
+
+#Employment length
+```{r}
+ggplot(loandata1, aes(x = emp_length, fill = default)) + 
+geom_bar(aes(y = (..count..)/sum(..count..)), position='stack', alpha=0.5) 
+
+
+loandata1$emp_length <- as.character(loandata1$emp_length)  #factor to character
+loandata1$emp_length <- sub("years", "", loandata1$emp_length)  #remove years
+loandata1$emp_length <- sub("< 1 year", "1", loandata1$emp_length)  #assumption of 1
+loandata1$emp_length <- sub("1 year", "1", loandata1$emp_length)  #replace with 1
+loandata1$emp_length <- sub("10\\+ ", "10", loandata1$emp_length)  #over with 10
+loandata1$emp_length <- as.numeric(loandata1$emp_length)  #numeric
+loandata1$emp_length[is.na(loandata1$emp_length)] <- median(loandata1$emp_length, na.rm=TRUE) #impute missing
+
+str(loandata1)
+
+#Emp_Title
+
+
+
+ggplot(loandata1, aes(x = emp_length, fill = default)) + 
+geom_bar(aes(y = (..count..)/sum(..count..)), position='stack', alpha=0.5) 
+```
+
+Employment Length: Majority of clients have 10+ years of experience and has highest number of defaulted loan.
+
+# Checking for outliers and removing them
+
+Outliers are observations that are abnormally out of range of the other values for a random sample from the
+population. To find out outliers I looked at the summary of the consolidated lending dataset. This helped
+understand that mostly none of the features had such abnormal observations, except for a couple of important
+ones like annual_inc.
+
+From the above graphics we can see that one of the observations for annual_inc is a
+outlier.Thus there are some outliers in the dataset which may have been captured due to wrong entry by
+the loan applicant.
+```{r}
+
+ggplot(data=loandata1,
+aes(y=annual_inc, x=1)) + geom_point() +
+labs(title = "Box Plot - Annual Income", x = "Annual Income", y = "")
+#we can see that there there is outlier present in the dataset so we will remove this.
+
+# Accual Income- We have removed the outliers with Income<500 and Income>1 million
+
+loandata2 <- loandata1 %>% filter(annual_inc < 1000000,annual_inc > 500 )
+
+  
+ggplot(data=loandata2,
+aes(y=annual_inc, x=1)) + geom_point() +
+labs(title = "Box Plot - Annual Income", x = "Annual Income", y = "")
+#we can see that there there is outlier present in the dataset so we will remove this.
+
+
+ggplot(data=loandata2,
+aes(y=loan_amnt, x=1)) + geom_boxplot() +
+labs(title = "Box Plot - Loan Amount", x = "Loan Amount", y = "")
+#Data for loan amount looks ok so no need to modify..
+
+
+```
+#DTI
+```{r}
+
+dti_boxplot <- boxplot(loandata2$dti)$stats 
+hist(loandata2$dti)
+
+#conversion (removing outliers):
+loandata3 <- loandata2 %>% filter(!dti > 100 & !dti == 0 )
+loandata3
+
+#plot after removing outlier
+boxplot(loandata3$dti)$stats 
+```
+
+The distribution is extremely skewed. Some Borrowers’ reported no debt, while one reported a DTI ratio of 29,550%. This is not surprising given that some of the Borrowers reported little or no income.
+
+#Scatterplot of Annual income and Loan Amount
+```{r}
+
+ggplot(loandata3, aes(x = annual_inc, loan_amnt, color=default)) + 
+  geom_point( )
+```
+# Finding the missing values and removing the outliers
+
+```{r}
+
+# ROWS WITH MISSING VALUES
+na.obs <- which(!complete.cases(loandata3)) 
+  
+View(loandata3[na.obs,]) # revol_util has missing values
+   
+## COLUMNS WITH MISSING VALUES
+na.count.cols <-apply(loandata3, 2, function(y) sum(length(which(is.na(y))))) # here we see that majority of the missing values are present in column mths_since_last_delinq 
+na.count.cols 
+# Note: we can see that revol_util has 8 missing values so we will impute it with the mean values
+
+#Imputing the missing values in the revol_util
+mean(loandata3$revol_util)
+mean(loandata3$revol_util, na.rm = TRUE)
+loandata3$revol_util[is.na(loandata3$revol_util)] <- median(loandata3$revol_util, na.rm = TRUE) # assign missing values of LoanAmount with mean of all non-missing values of LoanAmount
+  median(loandata3$revol_util)
+
+  
+## COLUMNS WITH MISSING VALUES
+na.count.cols <-apply(loandata3, 2, function(y) sum(length(which(is.na(y))))) # here we see that majority of the missing values are present in column mths_since_last_delinq 
+
+
+# plots: 
+boxplot(loandata3$emp_length)$stats
+hist(loandata3$emp_length)
+plot(loandata3$annual_inc, loandata3$emp_length)
+```
+
+# ****************************************************Unsupervised Learning**********************************
+
+# PCA
+
+With the given dataset,  it is imperative to reduce the dataset to smaller set of variables to derive a conclusion. With Multi-collinearity, two or more variables can share the same dimension. Each dimension can be viewed as 23 dimensional graph when the data is projected as orthonormal. Hence, PCA procedure is used to reduce the dimension of the data and it gives us a direction that approximately how many variables can be used to explain the data
+
+Our first attempt at running PCA shows that the first PC accounts for about 16.64\% of the variation in the data set. The first two PCs account for over 29.83\% of the variation and 5 PCs explain about the 60.7% of the variation. 
+```{r}
+
+data<- loandata3[,-c(4,8,10,11,27,28)]# taking the numeric values
+str(data)
+
+pca.sc <- prcomp(data, scale = TRUE) 
+  summary(pca.sc)
+  pca.sc$rotation # to get the loadings
+```
+
+
+# Biplot
+
+A *biplot* plots the observations in the first two dimensions (PCs) of the *new* coordinate system. Effectively, PCA *rotates* the observations such the first dimension explains the most variation, the second variation explains the second most variation, etc. and we know that each dimension in this new coordinate system is perpendicular to each other (i.e. uncorrelated).
+
+In our example, recall that  all had the same sign in PC 1 except pub_rec and mths_since_last_delinq. . That's why all  of those variables go to the left (negative doesn't have to mean left, by the way). and mths_since_last_delinq and pub_rec go to the right. 
+
+Now, in PC 2 (the y-axis), we can see from the biplot that revol_util, int_rate, installment, loan_amnt,default,dti  go in one direction and rest will go in other direction.
+
+From the scree Plot we can see that the 5 PC explain nearly about 61.845 % of the variation.Also,a scree plot shows the drop off in explained variance from one PC to the next. We typically choose the number of PCs based on the *elbow* of the plot. At that point we aren't explaining enough additional variation to warrant including another dimension.Hence, for now we can ignore principal components greater than 2.
+
+```{r}
+biplot(pca.sc) 
+apply(data, 2, mean) # to check each values above or below average
+screeplot(pca.sc, type = "lines")
+```
+
+#Kmeans clustering
+
+After performing principal component analysis, the next step is using clustering and identify large clusters. Few iterations were tried with different cluster sizes. 
+
+We are running the K-means with K = 2 using the projected observations onto the first 2 PCs from the previous part. 
+
+For K = 2
+
+```{r, message = FALSE}
+new.coords <- data.frame(pca.sc$x) 
+km.out <- kmeans(new.coords, 2, nstart = 20) # two clusters. 20 random starting points. It is list of 9 objects so we can see them using names.
+
+km.out$cluster # gives the cluster number of each observation
+clusters <- as.character(km.out$cluster) # cluster assignments as character (instead of default integer) because R can distinguish character better
+
+library(tidyverse)
+
+data.clus <- data.frame(new.coords, clusters) # combine cluster assignments with data set
+
+table(clusters) # table of number of observations that fall in each cluster
+
+
+
+ggplot(data.clus, aes(x = PC1, y = PC2, color = clusters)) +
+  geom_point( )
+```
+
+## K = 3, 4, 5, 6, 7
+# HOW TO SELECT THE NUMBER OF CLUSTERS-Silhouette Plots
+
+This would say we should choose K = 2 because the average silhouette scores is highest at 0.14
+
+```{r,warning=FALSE}
+new.coords <- data.frame(pca.sc$x) 
+km.out.3<-kmeans(new.coords,3,nstart=20)
+km.out.4<-kmeans(new.coords,4,nstart=20)
+km.out.5<-kmeans(new.coords,5,nstart=20)
+km.out.6<-kmeans(new.coords,6,nstart=20)
+
+
+
+table(km.out$cluster)
+table(km.out.3$cluster)
+table(km.out.4$cluster)
+table(km.out.5$cluster)
+table(km.out.6$cluster)
+
+
+library(cluster) # we need to use this package to get the silhouette score
+
+d <- dist(new.coords) # find the euclidean distance
+
+plot(silhouette(km.out$cluster, d))
+plot(silhouette(km.out.3$cluster, d))
+plot(silhouette(km.out.4$cluster, d))
+plot(silhouette(km.out.5$cluster, d))
+plot(silhouette(km.out.6$cluster, d))
+
+
+clusters <- as.character(km.out$cluster)
+new.coords.clus <- data.frame(pca.sc$x, clusters)
+ggplot(new.coords.clus, aes(x = PC1, y = PC2, color = clusters,size=PC3)) +
+  geom_point(alpha = 0.50) 
+
+# SUPERVISED LEARNING
+
+# **************************************Logistic Regression*****************************************
+library(tidyverse)
+library(caret)
+
+
+fitControl <- trainControl(method = "cv", number = 10)  
+loandata5<-loandata3[,-c(2,4,8,10,11,14,15,22,23,24)] # removing the variables are they were causing target leakage
+set.seed(1)   
+model.glm <- train(default ~ ., data = loandata5,
+                   method = "glm",
+                   family = "binomial",
+                   trControl = fitControl) 
+
+model.glm
+summary(model.glm)
+ #Accuracy   Kappa    
+  #0.9468785  0.8855373
+
+#removing non-significant variables
+model <- train(default ~ int_rate+dti+inq_last_6mths+open_acc+pub_rec+revol_bal+revol_util+total_acc+total_rec_int+last_pymnt_amnt, data = loandata5,
+                   method = "glm",
+                   family = "binomial",
+                   trControl = fitControl) 
+
+model
+summary(model)
+
+#removing non-significant variables
+model <- train(default ~ int_rate+dti+inq_last_6mths+open_acc+pub_rec+revol_util+total_acc+last_pymnt_amnt, data = loandata5,
+                   method = "glm",
+                   family = "binomial",
+                   trControl = fitControl) 
+
+model
+summary(model)
+
+```
+### ************************************************KNN**************************************************
+
+```{r}
+
+
+fitControl <- trainControl(method = "cv", number = 10)
+kGrid <- expand.grid(k = seq(1, 13, by = 2)) 
+set.seed(1)                           
+model.knn <- train(default ~ ., data = loandata5,
+                   method = "knn",
+                   preProcess = c("center", "scale"),
+                   tuneGrid = kGrid,
+                   trControl = fitControl)
+  model.knn
+# Accuracy was used to select the optimal model using the largest value(91.96%).The final value used for the model was k = 17.For each of the 10-folds, we can compare which class the KNN model from the training set would predict for the held out test set to their actual category. Then, we can average over the 10-folds. This is the Accuracy. In other words, we correctly predicted the response of our test values about 91.37% of the time.
+  
+  pred.prob <- predict(model.knn, loandata5, type = "prob")
+  pred.prob
+  
+pred.class.new <- ifelse(pred.prob$'1' >= 0.50, "1", "0")
+  table(loandata5$default, pred.class.new)
+    mean(loandata5$default == pred.class.new) # training accuracy
+    sens <- 6718  /(417 + 6718)
+    spec <- 12864    /(12864  + 1138)
+#  sens=0.9415557 and spec=0.9187259
+    
+pred.class.new <- ifelse(pred.prob$'1' >= 0.33, "1", "0")
+  table(loandata5$default, pred.class.new)
+    mean(loandata5$default == pred.class.new) # training accuracy
+    sens <- 7051/( 84  + 7051)
+    spec <- 12470/(12470+1532)
+#sens-0.988227 , spec-0.8905871
+    
+    ```
+    
+
+
+# **************************************SINGLE CLASSIFICATION TREE***********************************
+
+```{r}
+set.seed(1)  
+model.tree <- train(default ~ ., data = loandata5,
+                    method = "rpart",
+                    trControl = fitControl,
+                    tuneLength = 10,
+                    )
+
+model.tree
+
+par(xpd = NA)
+plot(model.tree$finalModel)
+text(model.tree$finalModel)
+#he final value used for the model was cp = 0.0009110021 and Accuracy-0.9751183
+
+# There are 13 terminal nodes. Lets pick the two nodes and verify:
+
+loandata5 %>% 
+  filter(last_pymnt_amnt >= 1921) %>% 
+  group_by(default) %>% 
+  summarize(n = n())
+
+```
+# Gini Index without making any splits. 
+```{r}
+ table(loandata5$default)
+ 
+#Gini Index is probability of success *(1-prob of success)
+#Gini Index if we didn’t make any decisions? 7135 of the 21140 are Yes, so we would get: (7135/21140)(1 − 7135/21140)=0.2235976
+
+```
+
+#Now, let’s compute the Gini Index after using that variable and value as the first split.We can see that the GINI index improved after making the split.
+```{r}
+# If we made a split on the last_pymnt_amnt >= 1921
+
+loandata5 %>% 
+  filter(last_pymnt_amnt >= 1921) %>% 
+  group_by(default) %>% 
+  summarize(n = n())
+
+loandata5 %>% 
+  filter(last_pymnt_amnt <1921) %>% 
+  group_by(default) %>% 
+  summarize(n = n())
+
+  # In this case, the left branch has 12958	 NO and 31 YES and other branch  has 1044	 no and 7104 yes. a Gini Index for the one region ie left to be: (31/12989)(1 − 39/12989)= 0.00238093  and for other region its (7104/8148)(1 − 7104/8148)=0.1117124 so weighted average= (12992/21137)* 0.00238093 + ((21137 - 12992)/21140)*0.1117124=0.0445
+
+```
+
+
+#**********************************RANDOM FOREST***********************************************************
+
+```{r}
+fitControl.new<-trainControl(method="cv",number=10,savePredictions = TRUE)
+mtryGrid <- expand.grid(mtry = 1:10)
+
+set.seed(1)
+
+loandata5$default<-as.factor(loandata5$default)
+model.rf <- train(default ~ ., data = loandata5,
+                    method = "rf",
+                    trControl = fitControl.new,
+                    tuneGrid = mtryGrid)
+
+model.rf
+
+
+varImp(model.rf)
+
+
+
+# predicting the default
+test.new <- data.frame(loan_amnt=18000,
+funded_amnt_inv=18000
+	,int_rate	=16.02
+,installment=437.92
+,	emp_length=1,	annual_inc=125000
+,	dti=9.53
+,	delinq_2yrs=2
+,	inq_last_6mths=1,	open_acc=14	,pub_rec=0	,	revol_util=34.9,	total_acc=31	,			total_rec_int=10.89	,last_pymnt_amnt=18042.93,home_own='0',revol_bal=17983
+)
+
+predict(model.rf, newdata = test.new) # predicting the values based on 7 closest neighbors.
+
+#Based on the values of the predictor variables, the fitted random forest model predicts that the person will not default
+
+
+
+
+```
